@@ -14,5 +14,7 @@ It will print out some commentary.  The last line will be your grade.  If it's 1
 git add .
 git commit -m "hw1"
 git push origin main
-```
+```git fetch release
+git merge release/main -m "Merging release" --allow-unrelated-histories
+
 
