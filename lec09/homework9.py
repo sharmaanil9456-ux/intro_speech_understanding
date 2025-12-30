@@ -1,5 +1,13 @@
 import numpy as np
 
+def waveform_to_frames(waveform, frame_length, step):
+    num_frames = int((len(waveform) - frame_length) / step + 1)
+    frames = np.zeros((num_frames, frame_length))
+    for i in range(num_frames):
+        frames[i] = waveform[i * step:i * step + frame_length]
+    return frames
+
+
 def VAD(waveform, Fs):
     '''
     Extract the segments that have energy greater than 10% of maximum.
@@ -13,7 +21,34 @@ def VAD(waveform, Fs):
     segments (list of arrays) - list of the waveform segments where energy is 
        greater than 10% of maximum energy
     '''
-    raise RuntimeError("You need to change this part")
+    frame_length = int(0.025 * Fs)
+    step = int(0.01 * Fs)
+    frames = waveform_to_frames(waveform, frame_length, step)
+    num_frames = frames.shape[0]
+
+    energies = np.zeros(num_frames)
+    for i in range(num_frames):
+        energies[i] = np.sum(frames[i] ** 2)
+
+    max_energy = np.max(energies)
+    segments = []
+    start = None
+
+    for i in range(num_frames):
+        if energies[i] > 0.1 * max_energy:
+            if start is None:
+                start = i
+        else:
+            if start is not None:
+                segment = waveform[start * step:(i - 1) * step + frame_length]
+                segments.append(segment)
+                start = None
+
+    if start is not None:
+        segment = waveform[start * step:]
+        segments.append(segment)
+
+    return segments
 
 def segments_to_models(segments, Fs):
     '''
@@ -29,7 +64,32 @@ def segments_to_models(segments, Fs):
     @returns:
     models (list of arrays) - average log spectra of pre-emphasized waveform segments
     '''
-    raise RuntimeError("You need to change this part")
+    models = []
+
+    frame_length = int(0.004 * Fs)  # 4 ms
+    step = int(0.002 * Fs)          # 2 ms
+
+    for seg in segments:
+        # Pre-emphasis
+        preemph = np.append(seg[0], seg[1:] - 0.97 * seg[:-1])
+
+        # Frame
+        frames = waveform_to_frames(preemph, frame_length, step)
+
+        # Magnitude STFT
+        mstft = np.abs(np.fft.fft(frames, axis=1))
+
+        # Keep low-frequency half
+        half = mstft[:, :frame_length // 2]
+
+        # Log spectrum
+        log_spec = 20 * np.log10(np.maximum(1e-12, half))
+
+        # Average spectrum
+        model = np.mean(log_spec, axis=0)
+        models.append(model)
+
+    return models
 
 def recognize_speech(testspeech, Fs, models, labels):
     '''
@@ -47,6 +107,23 @@ def recognize_speech(testspeech, Fs, models, labels):
     sims (Y-by-K array) - cosine similarity of each model to each test segment
     test_outputs (list of strings) - recognized label of each test segment
     '''
-    raise RuntimeError("You need to change this part")
+    test_segments = VAD(testspeech, Fs)
+    test_models = segments_to_models(test_segments, Fs)
+
+    Y = len(models)
+    K = len(test_models)
+    sims = np.zeros((Y, K))
+    test_outputs = []
+
+    for k in range(K):
+        for y in range(Y):
+            num = np.dot(models[y], test_models[k])
+            den = np.linalg.norm(models[y]) * np.linalg.norm(test_models[k])
+            sims[y, k] = num / den if den > 0 else 0
+
+        best = np.argmax(sims[:, k])
+        test_outputs.append(labels[best])
+
+    return sims, test_outputs
 
 
